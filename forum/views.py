@@ -16,7 +16,8 @@ from django.contrib import comments
 from django.contrib.contenttypes.models import ContentType
 from django.core.urlresolvers import reverse
 from django.utils.translation import ugettext as _
-from django.views.generic.list_detail import object_list
+
+from django.views.generic import ListView
 
 from forum.models import Forum,Thread
 from forum.forms import CreateThreadForm, ReplyForm
@@ -24,6 +25,21 @@ from forum.signals import thread_created
 
 FORUM_PAGINATION = getattr(settings, 'FORUM_PAGINATION', 20)
 LOGIN_URL = getattr(settings, 'LOGIN_URL', '/accounts/login/')
+
+class ForumListView(ListView):
+    pass
+
+class ForumIndexView(ForumListView):
+    model = Forum
+    #def get_queryset(self):
+    #    queryset = Forum.objects.for_user(request.user).filter(parent__isnull=True)
+    
+    def get_context_data(self, **kwargs):
+        # Call the base implementation first to get a context
+        context = super(ForumIndexView, self).get_context_data(**kwargs)
+        print kwargs
+
+        return context
 
 def forums_list(request):
     queryset = Forum.objects.for_user(request.user).filter(parent__isnull=True)
