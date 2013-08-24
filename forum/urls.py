@@ -21,7 +21,7 @@ sitemap_dict = {
 }
 
 urlpatterns = patterns('',
-    url(r'^$', ForumIndexView.as_view(), name='forum_list'),
+    url(r'^$', ForumIndexView.as_view(), name='forum_index'),
     (r'^(?P<url>(rss).*)/$', RssForumFeed()),
     (r'^(?P<url>(atom).*)/$', AtomForumFeed()),
     url(r'^(?P<slug>[-\w]+)/$', 'forum.views.forum', name='forum_thread_list'),
