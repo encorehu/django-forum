@@ -336,37 +336,6 @@ def search(request, slug):
         raise
         return response(request, 'cicero/search_unavailable.html', {})
 
-def forum(request, slug):
-    """
-    Displays a list of threads within a forum.
-    Threads are sorted by their sticky flag, followed by their
-    most recent post.
-    """
-    try:
-        f = Forum.objects.for_user(request.user).select_related().get(slug=slug)
-    except Forum.DoesNotExist:
-        raise Http404
-
-    form = CreateThreadForm()
-    child_forums = f.child.for_groups(request.user.groups.all())
-
-    recent_threads = f.thread_set.filter(posts__gt=0).select_related().order_by('-id')[:10]
-    active_threads = f.thread_set.select_related().filter(latest_post__submit_date__gt=\
-            datetime.now() - timedelta(hours=36)).order_by('-posts')[:10]
-
-    return object_list( request,
-                        queryset=f.thread_set.select_related('forum').order_by('-latest_post__submit_date'),
-                        paginate_by=FORUM_PAGINATION,
-                        template_object_name='thread',
-                        template_name='forum/thread_list.html',
-                        extra_context = {
-                            'forum': f,
-                #'child_forums': child_forums,
-                'active_threads': active_threads,
-                'recent_threads': recent_threads,
-                            'form': form,
-                        })
-
 def thread(request, thread):
     """
     Increments the viewed count on a thread then displays the
