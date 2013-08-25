@@ -28,7 +28,7 @@ from django.core.urlresolvers import reverse_lazy
 
 
 from forum.models import Forum,Thread,Post,Subscription
-from forum.forms import CreateThreadForm, ReplyForm,ThreadForm
+from forum.forms import CreateThreadForm, ReplyForm,ThreadForm,PostForm
 from forum.signals import thread_created
 
 FORUM_PAGINATION = getattr(settings, 'FORUM_PAGINATION', 10)
@@ -260,12 +260,13 @@ class ThreadCreateView(CreateView):
 class PostCreateView(CreateView):
     """Reply a Post to thread."""
     model         = Post
-    form_class    = ReplyForm
+    form_class    = PostForm
     template_name = 'forum/reply.html'
     #success_url   = reverse_lazy('forum_thread_list')
 
     def get_success_url(self):
-        return reverse('forum_view_thread',args=[self.thread.pk])
+        #return reverse('forum_view_thread',args=[self.thread.pk])
+        return self.object.get_absolute_url()
 
     @method_decorator(permission_required('forum.add_post'))
     def dispatch(self, *args, **kwargs):
@@ -277,12 +278,29 @@ class PostCreateView(CreateView):
     def get_context_data(self, **kwargs):
         """Add current shop to the context, so we can show it on the page."""
         context = super(PostCreateView, self).get_context_data(**kwargs)
-        context['thread'] = self.thread
+
+        extra_context = {
+            'forum':  self.forum,
+            'thread': self.thread,
+            'object': self.thread,
+            'subscription': self.subscribe,
+            'form':   form,
+        }
+        context.update(extra_context)
+
         return context
 
     def post(self, request, *args, **kwargs):
+        """
+        If a thread isn't closed, and the user is logged in, post a reply
+        to a thread. Note we don't have "nested" replies at this stage.
+        """
         if not request.user.is_authenticated():
-            return HttpResponseForbidden()
+            return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
+
+        if self.thread.closed:
+            return HttpResponseServerError()
+
         self.object = None
         form_class = self.get_form_class()
         form       = self.get_form(form_class)
@@ -290,18 +308,60 @@ class PostCreateView(CreateView):
         if form.is_valid():
             self.object = form.save(commit=False)
             self.object.thread = self.thread
+            self.object.author = request.user
+            self.object.time   = timezone.now()
             self.object.save()
 
+            sub = Subscription.objects.filter(thread=self.thread, author=request.user)
+            if form.cleaned_data.get('subscribe',False):
+                if not sub:
+                    s = Subscription(
+                        author=request.user,
+                        thread=self.thread
+                        )
+                    s.save()
+            else:
+                if sub:
+                    sub.delete()
+
+            if self.thread.subscription_set.count() > 0:
+                # Subscriptions are updated now send mail to all the authors subscribed in
+                # this thread.
+                mail_subject = ''
+                try:
+                    mail_subject = settings.FORUM_MAIL_PREFIX
+                except AttributeError:
+                    mail_subject = '[Forum]'
+
+                mail_from = ''
+                try:
+                    mail_from = settings.FORUM_MAIL_FROM
+                except AttributeError:
+                    mail_from = settings.DEFAULT_FROM_EMAIL
+
+                mail_tpl = loader.get_template('forum/notify.txt')
+                c = Context({
+                    'body': wordwrap(striptags(body), 72),
+                    'site' : Site.objects.get_current(),
+                    'thread': self.thread,
+                    })
+
+                email = EmailMessage(
+                        subject=mail_subject+' '+striptags(self.thread.title),
+                        body= mail_tpl.render(c),
+                        from_email=mail_from,
+                        bcc=[s.author.email for s in self.thread.subscription_set.all()],)
+                email.send(fail_silently=True)
             return self.form_valid(form)
         else:
             return self.form_invalid(form)
 
         self.object = None
-        return super(ThreadCreateView, self).post(request, *args, **kwargs)
+        return super(PostCreateView, self).post(request, *args, **kwargs)
 
     def form_valid(self, form):
         form.instance.thread = self.thread
-        return super(ThreadCreateView, self).form_valid(form)
+        return super(PostCreateView, self).form_valid(form)
 
 class SearchUnavailable(Exception):
         pass
@@ -368,85 +428,6 @@ def search(request, slug):
     except SearchUnavailable:
         raise
         return response(request, 'cicero/search_unavailable.html', {})
-
-
-
-def reply(request, thread):
-    """
-    If a thread isn't closed, and the user is logged in, post a reply
-    to a thread. Note we don't have "nested" replies at this stage.
-    """
-    if not request.user.is_authenticated():
-        return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
-    t = get_object_or_404(Thread, pk=thread)
-    if t.closed:
-        return HttpResponseServerError()
-    if not Forum.objects.has_access(t.forum, request.user.groups.all()):
-        return HttpResponseForbidden()
-
-    if request.method == "POST":
-        form = ReplyForm(request.POST)
-        if form.is_valid():
-            body = form.cleaned_data['body']
-            p = Post(
-                thread=t,
-                author=request.user,
-                body=body,
-                time=datetime.now(),
-                )
-            p.save()
-
-            sub = Subscription.objects.filter(thread=t, author=request.user)
-            if form.cleaned_data.get('subscribe',False):
-                if not sub:
-                    s = Subscription(
-                        author=request.user,
-                        thread=t
-                        )
-                    s.save()
-            else:
-                if sub:
-                    sub.delete()
-
-            if t.subscription_set.count() > 0:
-                # Subscriptions are updated now send mail to all the authors subscribed in
-                # this thread.
-                mail_subject = ''
-                try:
-                    mail_subject = settings.FORUM_MAIL_PREFIX
-                except AttributeError:
-                    mail_subject = '[Forum]'
-
-                mail_from = ''
-                try:
-                    mail_from = settings.FORUM_MAIL_FROM
-                except AttributeError:
-                    mail_from = settings.DEFAULT_FROM_EMAIL
-
-                mail_tpl = loader.get_template('forum/notify.txt')
-                c = Context({
-                    'body': wordwrap(striptags(body), 72),
-                    'site' : Site.objects.get_current(),
-                    'thread': t,
-                    })
-
-                email = EmailMessage(
-                        subject=mail_subject+' '+striptags(t.title),
-                        body= mail_tpl.render(c),
-                        from_email=mail_from,
-                        bcc=[s.author.email for s in t.subscription_set.all()],)
-                email.send(fail_silently=True)
-
-            return HttpResponseRedirect(p.get_absolute_url())
-    else:
-        form = ReplyForm()
-
-    return render_to_response('forum/reply.html',
-        RequestContext(request, {
-            'form': form,
-            'forum': t.forum,
-            'thread': t,
-        }))
 
 def newthread(request, forum):
     """

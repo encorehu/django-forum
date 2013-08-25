@@ -16,7 +16,8 @@ from forum.sitemap import ForumSitemap, ThreadSitemap, PostSitemap
 from forum.views import ForumIndexView, \
                         ForumView, \
                         ThreadCreateView, \
-                        ThreadView
+                        ThreadView, \
+                        PostCreateView
 
 sitemap_dict = {
     'forums': ForumSitemap,
@@ -30,7 +31,7 @@ urlpatterns = patterns('',
     (r'^(?P<url>(atom).*)/$', AtomForumFeed()),
     
     url(r'^thread/(?P<thread>[0-9]+)/$',        ThreadView.as_view(), name='forum_view_thread'),
-    url(r'^thread/(?P<thread>[0-9]+)/reply/$', 'forum.views.reply', name='forum_reply_thread'),
+    url(r'^thread/(?P<thread>[0-9]+)/reply/$', PostCreateView.as_view(), name='forum_reply_thread'),
 
     url(r'^subscriptions/$', 'forum.views.updatesubs', name='forum_subscriptions'),
     url(r'^(?P<forum>[-\w]+)/$',       ForumView.as_view(), name='forum_thread_list'),
