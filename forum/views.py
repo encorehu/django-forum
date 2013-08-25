@@ -124,31 +124,64 @@ class ForumView(FormMixin, ListView):
         # passed in form.cleaned_data['message']
         return super(ForumView, self).form_valid(form)
 
+
+
+
+
+
 class ThreadView(ListView):
     model = Post
-    paginate_by = 10
+    paginate_by = FORUM_PAGINATION
     template_object_name='post'
     template_name = 'forum/thread.html'
+    #page_kwarg ='page'
 
     def get_queryset(self):
         # get the url pattern <forum> from kwargs in func get_queryset,
         # but it cant get in the func get_context_data, in which the url kwargs had been cleared
         #self.forum  = get_object_or_404(Forum, slug=self.kwargs['forum'])
+        """
+        Increments the viewed count on a thread then displays the
+        posts for that thread, in chronological order.
+        """
         self.thread = get_object_or_404(Thread, pk=self.kwargs['thread'])
-        self.forum = self.thread.forum
+        try:
+            self.thread = Thread.objects.select_related().get(pk=self.kwargs['thread'])
+            self.forum = self.thread.forum
+            if not Forum.objects.has_access(self.forum, self.request.user):
+                raise Http404
+        except Thread.DoesNotExist:
+            raise Http404
 
         self.thread.views +=1
         self.thread.save()
-        return super(ThreadView, self).get_queryset().filter(thread=self.thread)
+
+        return super(ThreadView, self).get_queryset().filter(thread=self.thread).order_by('time')
 
 
     def get_context_data(self, **kwargs):
         context = super(ThreadView, self).get_context_data(**kwargs)
-        context['forum'] = self.forum
-        context['thread'] = self.thread
-        form = ReplyForm()
-        context['form']=form
-        print context
+
+        self.subscribe = None
+        if self.request.user.is_authenticated():
+            self.subscribe = self.thread.subscription_set.select_related().filter(author=self.request.user)
+
+        if self.subscribe:
+            initial = {'subscribe': True}
+        else:
+            initial = {'subscribe': False}
+
+        form = ReplyForm(initial=initial)
+
+        extra_context = {
+            'forum':  self.forum,
+            'thread': self.thread,
+            'object': self.thread,
+            'subscription': self.subscribe,
+            'form': form,
+        }
+        context.update(extra_context)
+
         return context
 
 class ThreadCreateView(CreateView):
@@ -336,51 +369,7 @@ def search(request, slug):
         raise
         return response(request, 'cicero/search_unavailable.html', {})
 
-def thread(request, thread):
-    """
-    Increments the viewed count on a thread then displays the
-    posts for that thread, in chronological order.
-    """
-    try:
-        t = Thread.objects.select_related().get(pk=thread)
-        if not Forum.objects.has_access(t.forum, request.user):
-            raise Http404
-    except Thread.DoesNotExist:
-        raise Http404
 
-    Post = comments.get_model()
-    p = Post.objects.exclude(pk=t.comment_id).filter(content_type=\
-        ContentType.objects.get_for_model(Thread),object_pk=t.pk).order_by('submit_date')
-    s = None
-    """
-    not sure
-    if request.user.is_authenticated():
-        s = t.subscription_set.select_related().filter(author=request.user)
-    """
-
-    #t.views += 1
-    #t.save()
-
-    if s:
-        initial = {'subscribe': True}
-    else:
-        initial = {'subscribe': False}
-
-    form = ReplyForm(initial=initial)
-
-    return object_list( request,
-                        queryset=p,
-                        page=request.GET.get('p',None) or None,
-                        paginate_by=FORUM_PAGINATION,
-                        template_object_name='post',
-                        template_name='forum/thread.html',
-                        extra_context = {
-                            'forum': t.forum,
-                            'thread': t,
-                            'object': t,
-                            'subscription': s,
-                            'form': form,
-                        })
 
 def reply(request, thread):
     """
