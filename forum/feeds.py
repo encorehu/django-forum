@@ -7,7 +7,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.urlresolvers import reverse
 from django.utils.translation import ugettext as _
 
-from forum.models import Forum, Thread
+from forum.models import Forum, Thread, Post
 
 class RssForumFeed(Feed):
     title_template = 'forum/feeds/post_title.html'
@@ -44,7 +44,6 @@ class RssForumFeed(Feed):
             return reverse('forum_index')
 
     def get_query_set(self, obj):
-        Post = comments.get_model()
         if obj:
             return Post.objects.filter(thread__forum__pk=obj.id).order_by('-time')
         else:
