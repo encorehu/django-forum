@@ -1,10 +1,11 @@
 from django.contrib import admin
 from django.db import models
 from django.contrib.admin.widgets import FilteredSelectMultiple
-from forum.models import Forum, Thread
+from forum.models import Forum, Thread, Post, Subscription
 
 class ForumAdmin(admin.ModelAdmin):
     list_display = ('title', '_parents_repr')
+    list_filter = ('groups',)
     ordering = ['ordering', 'parent', 'title']
     prepopulated_fields = {"slug": ("title",)}
     raw_id_fields = ['allowed_users']
@@ -13,10 +14,14 @@ class ForumAdmin(admin.ModelAdmin):
     }
     #raw_id_fields = ['allowed_users']
 
+class SubscriptionAdmin(admin.ModelAdmin):
+    list_display = ['author','thread']
+
 class ThreadAdmin(admin.ModelAdmin):
-    list_display = ('title', 'forum', 'latest_post','comment')
-    raw_id_fields = ('comment',)
+    list_display = ('title', 'forum', 'latest_post_time')
     list_filter = ('forum',)
 
 admin.site.register(Forum, ForumAdmin)
 admin.site.register(Thread, ThreadAdmin)
+admin.site.register(Post)
+admin.site.register(Subscription, SubscriptionAdmin)
