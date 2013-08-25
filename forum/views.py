@@ -336,11 +336,6 @@ def search(request, slug):
         raise
         return response(request, 'cicero/search_unavailable.html', {})
 
-def forums_list(request):
-    queryset = Forum.objects.for_user(request.user).filter(parent__isnull=True)
-    return object_list( request,
-                        queryset=queryset)
-
 def forum(request, slug):
     """
     Displays a list of threads within a forum.
