@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from django.utils.html import escape
 from django.utils.text import slugify
+from django.utils import timezone
 from django.core.urlresolvers import reverse
 
 try:
@@ -33,8 +34,7 @@ class Forum(models.Model):
     All of the parent/child recursion code here is borrowed directly from
     the Satchmo project: http://www.satchmoproject.com/
     """
-    groups = models.ManyToManyField(Group, blank=True)
-    allowed_users = models.ManyToManyField('auth.User',blank=True,related_name="allowed_forums",help_text="Ignore if non-restricted")
+    
     title = models.CharField(_("Title"), max_length=100)
     slug = models.SlugField(_("Slug"))
     parent = models.ForeignKey('self', blank=True, null=True, related_name='child')
@@ -42,6 +42,8 @@ class Forum(models.Model):
     threads = models.IntegerField(_("Threads"), default=0, editable=False)
     posts = models.IntegerField(_("Posts"), default=0, editable=False)
     ordering = models.IntegerField(_("Ordering"), blank=True, null=True)
+    groups = models.ManyToManyField(Group, blank=True)
+    allowed_users = models.ManyToManyField('auth.User',blank=True,related_name="allowed_forums",help_text="Ignore if non-restricted")
 
     objects = ForumManager()
 
@@ -164,7 +166,7 @@ class Thread(models.Model):
     """
     forum = models.ForeignKey(Forum)
     title = models.CharField(_("Title"), max_length=100)
-    slug = models.SlugField(_("Slug"), max_length=105)
+    slug = models.SlugField(_("Slug"), max_length=105,blank=True)
     sticky = models.BooleanField(_("Sticky?"), blank=True, default=False)
     closed = models.BooleanField(_("Closed?"), blank=True, default=False)
     posts = models.IntegerField(_("Posts"), default=0)
@@ -190,7 +192,6 @@ class Thread(models.Model):
     def save(self, *args,**kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
-            print self.slug
 
         f = self.forum
         f.threads = f.thread_set.count()
@@ -208,10 +209,11 @@ class Thread(models.Model):
     
     @models.permalink
     def get_absolute_url(self):
-        return ('forum_view_thread', [self.forum.slug,self.pk])
+        return ('forum_view_thread', [self.pk,])
     
     def __unicode__(self):
         return self.title.replace('[[','').replace(']]','')
+
 class Post(models.Model):
     """ 
     A Post is a User's input to a thread. Uber-basic - the save() 
@@ -225,7 +227,7 @@ class Post(models.Model):
 
     def save(self, force_insert=False, force_update=False):
         if not self.id:
-            self.time = datetime.datetime.now()
+            self.time = timezone.now()
         
         self.body_html = markdown(escape(self.body))
         super(Post, self).save(force_insert, force_update)
