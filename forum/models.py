@@ -8,28 +8,11 @@ methods. A little extra logic is in views.py.
 from django.db import models
 import datetime
 from django.contrib.auth.models import User, Group
-from django.core.urlresolvers import reverse
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from django.utils.html import escape
-from django.contrib import comments
-from django.contrib.contenttypes.models import ContentType
-
-from django.contrib.comments.signals import comment_was_posted
-
-Comment = comments.get_model()
-def update_thread(sender, request, **kwargs):
-	instance = kwargs.get('comment')
-	if instance.content_object.__class__ == Thread:
-		x = instance.content_object
-		x.latest_post = instance
-		x.posts += 1
-		x.save()
-
-		x.forum.posts += 1
-		x.forum.save()
-
-comment_was_posted.connect(update_thread,sender=Comment)
+from django.utils.text import slugify
+from django.core.urlresolvers import reverse
 
 try:
     from markdown import markdown
@@ -50,6 +33,7 @@ class Forum(models.Model):
     All of the parent/child recursion code here is borrowed directly from
     the Satchmo project: http://www.satchmoproject.com/
     """
+    groups = models.ManyToManyField(Group, blank=True)
     allowed_users = models.ManyToManyField('auth.User',blank=True,related_name="allowed_forums",help_text="Ignore if non-restricted")
     title = models.CharField(_("Title"), max_length=100)
     slug = models.SlugField(_("Slug"))
@@ -64,10 +48,8 @@ class Forum(models.Model):
     def _get_forum_latest_post(self):
         """This gets the latest post for the forum"""
         if not hasattr(self, '__forum_latest_post'):
-            Post = comments.get_model()
-	    ct = ContentType.objects.get_for_model(Forum)
             try:
-                self.__forum_latest_post = Post.objects.filter(content_type=ct,object_pk=self.id).latest("submit_date")
+                self.__forum_latest_post = Post.objects.filter(thread__forum__pk=self.id).latest("time")
             except Post.DoesNotExist:
                 self.__forum_latest_post = None
 
@@ -187,18 +169,28 @@ class Thread(models.Model):
     closed = models.BooleanField(_("Closed?"), blank=True, default=False)
     posts = models.IntegerField(_("Posts"), default=0)
     views = models.IntegerField(_("Views"), default=0)
-    comment = models.ForeignKey('comments.Comment',null=True,blank=True,related_name="commentthread_set") # Two way link
-    latest_post = models.ForeignKey('comments.Comment',editable=False,null=True,blank=True)
+    latest_post_time = models.DateTimeField(_("Latest Post Time"), blank=True, null=True)
+
+    def _get_thread_latest_post(self):
+        """This gets the latest post for the thread"""
+        if not hasattr(self, '__thread_latest_post'):
+            try:
+                self.__thread_latest_post = Post.objects.filter(thread__pk=self.id).latest("time")
+            except Post.DoesNotExist:
+                self.__thread_latest_post = None
+
+        return self.__thread_latest_post
+    thread_latest_post = property(_get_thread_latest_post)
 
     class Meta:
-        ordering = ('-sticky', '-latest_post__submit_date')
+        ordering = ('-sticky', '-latest_post_time')
         verbose_name = _('Thread')
         verbose_name_plural = _('Threads')
 
     def save(self, *args,**kwargs):
-	from slugify import SlugifyUniquely, slugify
-	if not self.slug:
-		self.slug = SlugifyUniquely(self.title, Thread)
+        if not self.slug:
+            self.slug = slugify(self.title)
+            print self.slug
 
         f = self.forum
         f.threads = f.thread_set.count()
@@ -211,14 +203,83 @@ class Thread(models.Model):
         super(Thread, self).delete()
         f = self.forum
         f.threads = f.thread_set.count()
-        Post = comments.get_model()
-        ct = ContentType.objects.get_for_model(Forum)
-        f.posts = Post.objects.filter(content_type=ct,object_pk=f.id).count()
+        f.posts = Post.objects.filter(thread__forum__pk=f.id).count()
         f.save()
     
+    @models.permalink
     def get_absolute_url(self):
-        return reverse('forum_view_thread', args=[self.forum.slug,self.slug])
-#get_absolute_url = models.permalink(get_absolute_url)
+        return ('forum_view_thread', [self.forum.slug,self.pk])
     
     def __unicode__(self):
         return self.title.replace('[[','').replace(']]','')
+class Post(models.Model):
+    """ 
+    A Post is a User's input to a thread. Uber-basic - the save() 
+    method also updates models further up the heirarchy (Thread,Forum)
+    """
+    thread = models.ForeignKey(Thread)
+    author = models.ForeignKey(User, related_name='forum_post_set')
+    body = models.TextField(_("Body"))
+    body_html = models.TextField(editable=False)
+    time = models.DateTimeField(_("Time"), blank=True, null=True)
+
+    def save(self, force_insert=False, force_update=False):
+        if not self.id:
+            self.time = datetime.datetime.now()
+        
+        self.body_html = markdown(escape(self.body))
+        super(Post, self).save(force_insert, force_update)
+
+        t = self.thread
+        t.latest_post_time = t.post_set.latest('time').time
+        t.posts = t.post_set.count()
+        t.save()
+
+        f = self.thread.forum
+        f.threads = f.thread_set.count()
+        f.posts = Post.objects.filter(thread__forum__pk=f.id).count()
+        f.save()
+
+    def delete(self):
+        try:
+            latest_post = Post.objects.exclude(pk=self.id).latest('time')
+            latest_post_time = latest_post.time
+        except Post.DoesNotExist:
+            latest_post_time = None
+
+        t = self.thread
+        t.posts = t.post_set.exclude(pk=self.id).count()
+        t.latest_post_time = latest_post_time
+        t.save()
+
+        f = self.thread.forum
+        f.posts = Post.objects.filter(thread__forum__pk=f.id).exclude(pk=self.id).count()
+        f.save()
+
+        super(Post, self).delete()
+
+    class Meta:
+        ordering = ('-time',)
+        verbose_name = _('Post')
+        verbose_name_plural = _('Posts')
+        
+    def get_absolute_url(self):
+        return '%s?page=last#post%s' % (self.thread.get_absolute_url(), self.id)
+    
+    def __unicode__(self):
+        return u"%s" % self.id
+
+class Subscription(models.Model):
+    """
+    Allow users to subscribe to threads.
+    """
+    author = models.ForeignKey(User)
+    thread = models.ForeignKey(Thread)
+
+    class Meta:
+        unique_together = (("author", "thread"),)
+        verbose_name = _('Subscription')
+        verbose_name_plural = _('Subscriptions')
+
+    def __unicode__(self):
+        return u"%s to %s" % (self.author, self.thread)
