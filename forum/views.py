@@ -21,7 +21,7 @@ from django.contrib.auth.decorators import permission_required
 from django.utils import timezone
 
 from django.views.generic import ListView
-from django.views.generic import CreateView
+from django.views.generic import CreateView, UpdateView
 from django.views.generic.edit import FormMixin
 from django.core.urlresolvers import reverse_lazy
 
@@ -444,7 +444,7 @@ def search(request, slug):
         return response(request, 'cicero/search_unavailable.html', {})
 
 
-class SubscriptionUpdateView(UpdateView):
+class SubscriptionUpdateView(ListView):
     """
     Allow users to update their subscriptions all in one shot.
     """
@@ -453,7 +453,7 @@ class SubscriptionUpdateView(UpdateView):
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated():
             return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
-        return super(SubscriptionUpdateView, self).dispatch(*args, **kwargs)
+        return super(SubscriptionUpdateView, self).dispatch(request,*args, **kwargs)
         
     def get_queryset(self):
         return Subscription.objects.select_related().filter(author=self.request.user)
@@ -465,10 +465,12 @@ class SubscriptionUpdateView(UpdateView):
                 s.delete()
         return HttpResponseRedirect(reverse('forum_subscriptions'))
     
-    def get_context_data(self,*args, **kwargs):
-        context = super(SubscriptionUpdateView,self).get_context_data(self,*args, **kwargs)
+    def get_context_data(self, **kwargs):
+        context = super(SubscriptionUpdateView,self).get_context_data(**kwargs)
         
         extra_context={
             'subs': self.queryset,
             'next': self.request.GET.get('next')
         }
+        context.update(extra_context)
+        return context
