@@ -185,7 +185,13 @@ class ThreadView(ListView):
         return context
 
 class ThreadCreateView(CreateView):
-    """Creates a Thread for a Forum."""
+    """
+    Rudimentary post function - this should probably use
+    newforms, although not sure how that goes when we're updating
+    two models.
+
+    Only allows a user to post if they're logged in.
+    Creates a Thread for a Forum."""
     model         = Thread
     form_class    = ThreadForm
     template_name = 'forum/newthread.html'
@@ -194,18 +200,32 @@ class ThreadCreateView(CreateView):
     def get_success_url(self):
         #return reverse_lazy('forum_thread_list',[self.forum])
         return reverse('forum_thread_list',args=[self.forum.slug])
+        return self.object.get_absolute_url()
 
     @method_decorator(permission_required('forum.add_thread'))
-    def dispatch(self, *args, **kwargs):
+    def dispatch(self, request, *args, **kwargs):
         """ Decorate the view dispatcher with permission_required
             Ensure the forum exists before creating a new Thread."""
+        if not request.user.is_authenticated():
+            return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
+
         self.forum = get_object_or_404(Forum, slug=kwargs['forum'])
-        return super(ThreadCreateView, self).dispatch(*args, **kwargs)
+
+        if not Forum.objects.has_access(self.forum, request.user):
+            return HttpResponseForbidden()
+
+        return super(ThreadCreateView, self).dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         """Add current shop to the context, so we can show it on the page."""
         context = super(ThreadCreateView, self).get_context_data(**kwargs)
-        context['forum'] = self.forum
+
+        extra_context = {
+            'forum':  self.forum,
+            'form': form,
+        }
+        context.update(extra_context)
+
         return context
 
     def post(self, request, *args, **kwargs):
@@ -220,6 +240,7 @@ class ThreadCreateView(CreateView):
         if form.is_valid():
             self.object = form.save(commit=False)
             self.object.forum = self.forum
+            self.object.title = form.cleaned_data['title']
             self.object.save()
 
             post = Post(thread = self.object,
@@ -229,6 +250,16 @@ class ThreadCreateView(CreateView):
                         )
             post.save()
 
+            self.object.latest_post_time=post.time
+            #self.object.posts +=1 #wrong, 1 more
+            self.object.save()
+
+            if form.cleaned_data.get('subscribe', False):
+                s = Subscription(
+                    author=request.user,
+                    thread=self.object,
+                    )
+                s.save()
             return self.form_valid(form)
         else:
             return self.form_invalid(form)
@@ -238,16 +269,8 @@ class ThreadCreateView(CreateView):
 
     def form_valid(self, form):
         form.instance.forum = self.forum
-        ###self.object = form.save(commit=False)
-        ###self.object.owner = self.request.user
-        ###self.object.save()
-        print form.cleaned_data
-        #post = Post()
-        #post.save()
         return super(ThreadCreateView, self).form_valid(form)
-        ###return HttpResponseRedirect(self.get_success_url())
-#
-#
+
 #    ###def form_invalid(self, form, formset=None):
 #    ###    return self.render_to_response(self.get_context_data(form=form, formset=formset))
 #
@@ -428,57 +451,6 @@ def search(request, slug):
     except SearchUnavailable:
         raise
         return response(request, 'cicero/search_unavailable.html', {})
-
-def newthread(request, forum):
-    """
-    Rudimentary post function - this should probably use
-    newforms, although not sure how that goes when we're updating
-    two models.
-
-    Only allows a user to post if they're logged in.
-    """
-    if not request.user.is_authenticated():
-        return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
-
-    f = get_object_or_404(Forum, slug=forum)
-
-    if not Forum.objects.has_access(f, request.user):
-        return HttpResponseForbidden()
-
-    if request.method == 'POST':
-        form = CreateThreadForm(request.POST)
-        if form.is_valid():
-            t = Thread(
-                forum=f,
-                title=form.cleaned_data['title'],
-            )
-            t.save()
-
-            p = Post(
-                thread=t,
-                author=request.user,
-                body=form.cleaned_data['body'],
-                time=datetime.now(),
-            )
-            p.save()
-            t.latest_post = p
-            t.comment = p
-            t.save()
-            if form.cleaned_data.get('subscribe', False):
-                s = Subscription(
-                    author=request.user,
-                    thread=t
-                    )
-                s.save()
-            return HttpResponseRedirect(t.get_absolute_url())
-    else:
-        form = CreateThreadForm()
-
-    return render_to_response('forum/newthread.html',
-        RequestContext(request, {
-            'form': form,
-            'forum': f,
-        }))
 
 def updatesubs(request):
     """
