@@ -271,15 +271,6 @@ class ThreadCreateView(CreateView):
         form.instance.forum = self.forum
         return super(ThreadCreateView, self).form_valid(form)
 
-#    ###def form_invalid(self, form, formset=None):
-#    ###    return self.render_to_response(self.get_context_data(form=form, formset=formset))
-#
-#    def get_form_kwargs(self, **kwargs):
-#        kwargs = super(ThreadCreateView, self).get_form_kwargs(**kwargs)
-#        kwargs['initial']['forum'] = self.forum
-#        print kwargs
-#        return kwargs
-
 class PostCreateView(CreateView):
     """Reply a Post to thread."""
     model         = Post
@@ -452,26 +443,32 @@ def search(request, slug):
         raise
         return response(request, 'cicero/search_unavailable.html', {})
 
-def updatesubs(request):
+
+class SubscriptionUpdateView(UpdateView):
     """
     Allow users to update their subscriptions all in one shot.
     """
-    if not request.user.is_authenticated():
-        return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
-
-    subs = Subscription.objects.select_related().filter(author=request.user)
-
-    if request.POST:
-        # remove the subscriptions that haven't been checked.
+    template_name='forum/updatesubs.html'
+    
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated():
+            return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
+        return super(SubscriptionUpdateView, self).dispatch(*args, **kwargs)
+        
+    def get_queryset(self):
+        return Subscription.objects.select_related().filter(author=self.request.user)
+    
+    def post(self, request, *args, **kwargs):
         post_keys = [k for k in request.POST.keys()]
-        for s in subs:
-            if not str(s.thread.id) in post_keys:
+        for s in self.queryset:
+            if not str(s.thread.pk) in post_keys:
                 s.delete()
         return HttpResponseRedirect(reverse('forum_subscriptions'))
-
-    return render_to_response('forum/updatesubs.html',
-        RequestContext(request, {
-            'subs': subs,
-            'next': request.GET.get('next')
-        }))
-
+    
+    def get_context_data(self,*args, **kwargs):
+        context = super(SubscriptionUpdateView,self).get_context_data(self,*args, **kwargs)
+        
+        extra_context={
+            'subs': self.queryset,
+            'next': self.request.GET.get('next')
+        }
