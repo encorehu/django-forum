@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.syndication.views import Feed
 from django.contrib.syndication.views import FeedDoesNotExist
-from django.utils.feedgenerator import Atom1Feed
+from django.utils.feedgenerator import Atom1Feed,Rss201rev2Feed
 from django.contrib.sites.models import Site
 from django.core.exceptions import ObjectDoesNotExist
 from django.core.urlresolvers import reverse
@@ -9,23 +9,38 @@ from django.utils.translation import ugettext as _
 
 from forum.models import Forum, Thread, Post
 
+class ExtendedRSSFeed(Rss201rev2Feed):
+    mime_type = 'application/xml'
+    """
+    Create a type of RSS feed that has content:encoded elements.
+    """
+    def root_attributes(self):
+        attrs = super(ExtendedRSSFeed, self).root_attributes()
+        attrs['xmlns:content'] = 'http://purl.org/rss/1.0/modules/content/'
+        return attrs
+
 class RssForumFeed(Feed):
+    feed_type = ExtendedRSSFeed
     title_template = 'forum/feeds/post_title.html'
     description_template = 'forum/feeds/post_description.html'
 
-    def get_object(self, bits):
-        if len(bits) == 0:
+    def get_object(self, request, forum):
+        if len(forum) == 0:
             return None
         else:
-            slug = "/".join(bits)
-            return Forum.objects.get(slug__exact=slug)
+            try:
+                f = Forum.objects.get(slug__exact=forum)
+            except Forum.DoesNotExist:
+                return None
+            else:
+                return f
 
     def title(self, obj):
         if not hasattr(self, '_site'):
             self._site = Site.objects.get_current()
 
         if obj:
-            return _("%(title)s's Forum: %(forum)s") % { 
+            return _("%(title)s's Forum: %(forum)s") % {
                 'title': self._site.name,
                 'forum': obj.title }
         else:
