@@ -27,10 +27,11 @@ sitemap_dict = {
 }
 
 urlpatterns = patterns('',
-    url(r'^$', ForumIndexView.as_view(), name='forum_index'),
+    url(r'^$',            ForumIndexView.as_view(), name='forum_index'),
+    url(r'^forumlist/$',  ForumIndexView.as_view(template_name='forum/forum_list.html'), name='forum_list'),
     #(r'^(?P<url>(rss).*)/$', RssForumFeed()),
     (r'^(?P<url>(atom).*)/$', AtomForumFeed()),
-    
+
     url(r'^thread/(?P<thread>[0-9]+)/$',           ThreadView.as_view(), name='forum_view_thread'),
     url(r'^thread/(?P<thread>[0-9]+)/reply/$', PostCreateView.as_view(), name='forum_reply_thread'),
 
@@ -38,7 +39,7 @@ urlpatterns = patterns('',
     url(r'^(?P<forum>[-\w]+)/$',            ForumView.as_view(), name='forum_thread_list'),
     url(r'^(?P<forum>[-\w]+)/new/$', ThreadCreateView.as_view(), name='forum_new_thread'),
     url(r'^(?P<forum>[-\w]+)/rss/$', RssForumFeed(), name='forum_rss'),
-    
+
     url(r'^([-\w/]+/)(?P<forum>[-\w]+)/rss/$', RssForumFeed()), # must before forum_subforum_thread_list
     url(r'^([-\w/]+/)(?P<forum>[-\w]+)/new/$', ThreadCreateView.as_view()), # must before forum_subforum_thread_list
     url(r'^([-\w/]+/)(?P<forum>[-\w]+)/$', ForumView.as_view(), name='forum_subforum_thread_list'),
