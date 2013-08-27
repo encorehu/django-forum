@@ -1,7 +1,7 @@
-""" 
+"""
 A basic forum model with corresponding thread/post models.
 
-Just about all logic required for smooth updates is in the save() 
+Just about all logic required for smooth updates is in the save()
 methods. A little extra logic is in views.py.
 """
 
@@ -34,7 +34,7 @@ class Forum(models.Model):
     All of the parent/child recursion code here is borrowed directly from
     the Satchmo project: http://www.satchmoproject.com/
     """
-    
+
     title = models.CharField(_("Title"), max_length=100)
     slug = models.SlugField(_("Slug"))
     parent = models.ForeignKey('self', blank=True, null=True, related_name='child')
@@ -57,6 +57,17 @@ class Forum(models.Model):
 
         return self.__forum_latest_post
     forum_latest_post = property(_get_forum_latest_post)
+
+    def _get_forum_today_posts(self):
+        """This gets the  post count of today for the forum"""
+        if not hasattr(self, '__forum_today_posts'):
+            try:
+                self.__forum_today_posts = Post.objects.filter(thread__forum__pk=self.id).count()
+            except Post.DoesNotExist:
+                self.__forum_today_posts = 0
+
+        return self.__forum_today_posts
+    forum_today_posts = property(_get_forum_today_posts)
 
     def _recurse_for_parents_slug(self, forum_obj):
         #This is used for the urls
@@ -120,7 +131,7 @@ class Forum(models.Model):
 
     def __unicode__(self):
         return u'%s' % self.title
-    
+
     class Meta:
         ordering = ['ordering', 'title',]
         verbose_name = _('Forum')
@@ -130,6 +141,10 @@ class Forum(models.Model):
         p_list = self._recurse_for_parents_name(self)
         if (self.title) in p_list:
             raise validators.ValidationError(_("You must not save a forum in itself!"))
+
+        if not self.slug:
+            self.slug = slugify(self.title)
+
         super(Forum, self).save(force_insert, force_update)
 
     def _flatten(self, L):
@@ -160,18 +175,30 @@ class Thread(models.Model):
     """
     A Thread belongs in a Forum, and is a collection of posts.
 
-    Threads can be closed or stickied which alter their behaviour 
-    in the thread listings. Again, the posts & views fields are 
+    Threads can be closed or stickied which alter their behaviour
+    in the thread listings. Again, the posts & views fields are
     automatically updated with saving a post or viewing the thread.
     """
     forum = models.ForeignKey(Forum)
     title = models.CharField(_("Title"), max_length=100)
-    slug = models.SlugField(_("Slug"), max_length=105,blank=True)
+    slug  = models.SlugField(_("Slug"), max_length=105,blank=True)
     sticky = models.BooleanField(_("Sticky?"), blank=True, default=False)
     closed = models.BooleanField(_("Closed?"), blank=True, default=False)
     posts = models.IntegerField(_("Posts"), default=0)
     views = models.IntegerField(_("Views"), default=0)
     latest_post_time = models.DateTimeField(_("Latest Post Time"), blank=True, null=True)
+
+    def _get_thread_first_post(self):
+        """This gets the latest post for the thread"""
+        if not hasattr(self, '__thread_first_post'):
+            qs = Post.objects.filter(thread__pk=self.id).order_by("time")
+            if qs.exists():
+                self.__thread_first_post = qs[0]
+            else:
+                self.__thread_first_post = None
+
+        return self.__thread_first_post
+    thread_first_post = property(_get_thread_first_post)
 
     def _get_thread_latest_post(self):
         """This gets the latest post for the thread"""
@@ -206,17 +233,22 @@ class Thread(models.Model):
         f.threads = f.thread_set.count()
         f.posts = Post.objects.filter(thread__forum__pk=f.id).count()
         f.save()
-    
+
     @models.permalink
     def get_absolute_url(self):
         return ('forum_view_thread', [self.pk,])
-    
+
     def __unicode__(self):
         return self.title.replace('[[','').replace(']]','')
 
+    def _get_replys(self):
+        """This gets the reply post count"""
+        return max(0, self.posts-1)
+    replys = property(_get_replys)
+
 class Post(models.Model):
-    """ 
-    A Post is a User's input to a thread. Uber-basic - the save() 
+    """
+    A Post is a User's input to a thread. Uber-basic - the save()
     method also updates models further up the heirarchy (Thread,Forum)
     """
     thread = models.ForeignKey(Thread)
@@ -228,7 +260,7 @@ class Post(models.Model):
     def save(self, force_insert=False, force_update=False):
         if not self.id:
             self.time = timezone.now()
-        
+
         self.body_html = markdown(escape(self.body))
         super(Post, self).save(force_insert, force_update)
 
@@ -264,10 +296,10 @@ class Post(models.Model):
         ordering = ('-time',)
         verbose_name = _('Post')
         verbose_name_plural = _('Posts')
-        
+
     def get_absolute_url(self):
         return '%s?page=last#post%s' % (self.thread.get_absolute_url(), self.id)
-    
+
     def __unicode__(self):
         return u"%s" % self.id
 
