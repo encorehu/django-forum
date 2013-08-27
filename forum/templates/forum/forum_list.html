@@ -9,7 +9,7 @@
 <th>{% trans "Last Post" %}</th>
 </tr>
 
-{% for forum in object_list %}
+{% for forum in forum_list %}
 <tr>
 <td class='djangoForumListDetails'><p><strong><a href='{{ forum.get_absolute_url }}'>{{ forum.title }}</a></strong><br /><span class='djangoForumStats'>{% blocktrans with forum.threads as thread_count and forum.posts as post_count %}{{ thread_count }} threads, {{ post_count }} posts{% endblocktrans %}</span></p>
 <p>{{ forum.description }}</p></td>
