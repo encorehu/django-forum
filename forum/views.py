@@ -51,18 +51,25 @@ class JSONResponse(HttpResponse):
         super(JSONResponse, self).__init__(json.dumps(data), **defaults)
 
 class ForumIndexView(ListView):
-    model = Forum
+    model = Thread
+    paginate_by = FORUM_PAGINATION
+    # template_object_name = 'latest_thread' cant apply with a _ conbine with latest and thread
+    template_name = 'forum/forum_index.html'
 
     def get_queryset(self):
-        queryset = Forum.objects.for_user(self.request.user).filter(parent__isnull=True)
-        return queryset
+        return Thread.objects.all().order_by('-latest_post_time')
 
     def get_context_data(self, **kwargs):
         # Call the base implementation first to get a context
         context = super(ForumIndexView, self).get_context_data(**kwargs)
 
-        return context
+        extra_context={
+            'forum_list':Forum.objects.for_user(self.request.user).filter(parent__isnull=True)
+        }
+        context.update(extra_context)
+        print context
 
+        return context
 
 class ForumView(FormMixin, ListView):
     model       = Thread
@@ -89,7 +96,10 @@ class ForumView(FormMixin, ListView):
         # get the url pattern <forum> from kwargs in func get_queryset or dispatch,
         # but it cant get in the func get_context_data, in which the url kwargs had been cleared
         #return super(ForumView, self).get_queryset().select_related('forum').filter(forum=self.forum).order_by('-latest_post_time')
-        return self.forum.thread_set.select_related('forum').order_by('-latest_post_time')
+        #return self.forum.thread_set.select_related('forum').order_by('-latest_post_time')
+        ids = [self.forum.pk,]
+        ids.extend([x.pk for x in self.forum.get_all_children()])
+        return Thread.objects.filter(forum__pk__in=ids).select_related('forum').order_by('-latest_post_time').all()
 
 
     def get_context_data(self, **kwargs):
@@ -409,6 +419,8 @@ class SphinxObjectList(object):
         ids = [m['id'] for m in self.results['matches']]
         return Topic.objects.filter(id__in=ids)
 
+class ForumSearchView(ListView):
+    pass
 def search(request, slug):
     forum = get_object_or_404(Forum, slug=slug)
     try:
@@ -449,28 +461,29 @@ class SubscriptionUpdateView(ListView):
     Allow users to update their subscriptions all in one shot.
     """
     template_name='forum/updatesubs.html'
-    
+
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated():
             return HttpResponseRedirect('%s?next=%s' % (LOGIN_URL, request.path))
         return super(SubscriptionUpdateView, self).dispatch(request,*args, **kwargs)
-        
+
     def get_queryset(self):
         return Subscription.objects.select_related().filter(author=self.request.user)
-    
+
     def post(self, request, *args, **kwargs):
         post_keys = [k for k in request.POST.keys()]
         for s in self.queryset:
             if not str(s.thread.pk) in post_keys:
                 s.delete()
         return HttpResponseRedirect(reverse('forum_subscriptions'))
-    
+
     def get_context_data(self, **kwargs):
         context = super(SubscriptionUpdateView,self).get_context_data(**kwargs)
-        
+
         extra_context={
             'subs': self.queryset,
             'next': self.request.GET.get('next')
         }
         context.update(extra_context)
         return context
+
