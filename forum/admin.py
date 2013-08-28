@@ -23,5 +23,5 @@ class ThreadAdmin(admin.ModelAdmin):
 
 admin.site.register(Forum, ForumAdmin)
 admin.site.register(Thread, ThreadAdmin)
-admin.site.register(Post)
+#admin.site.register(Post)
 admin.site.register(Subscription, SubscriptionAdmin)
