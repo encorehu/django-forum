@@ -18,7 +18,9 @@ from forum.views import ForumIndexView, \
                         ThreadCreateView, \
                         ThreadView, \
                         PostCreateView, \
-                        SubscriptionUpdateView
+                        SubscriptionUpdateView, \
+                        ForumSearchView, \
+                        ForumTagsView
 
 sitemap_dict = {
     'forums': ForumSitemap,
@@ -34,8 +36,16 @@ urlpatterns = patterns('',
 
     url(r'^thread/(?P<thread>[0-9]+)/$',           ThreadView.as_view(), name='forum_view_thread'),
     url(r'^thread/(?P<thread>[0-9]+)/reply/$', PostCreateView.as_view(), name='forum_reply_thread'),
-
+    
+    url(r'^search/$', ForumSearchView.as_view(), name='forum_search'),
+    url(r'^search/(?P<keyword>[-\w]+)/$', ForumSearchView.as_view(), name='forum_search_keyword'),
+    
+    url(r'^tags/$', ForumTagsView.as_view(), name='forum_tags'),
+    
     url(r'^subscriptions/$',   SubscriptionUpdateView.as_view(), name='forum_subscriptions'),
+    url(r'^like/$',   SubscriptionUpdateView.as_view(), name='forum_like'),
+    
+    
     url(r'^(?P<forum>[-\w]+)/$',            ForumView.as_view(), name='forum_thread_list'),
     url(r'^(?P<forum>[-\w]+)/new/$', ThreadCreateView.as_view(), name='forum_new_thread'),
     url(r'^(?P<forum>[-\w]+)/rss/$', RssForumFeed(), name='forum_rss'),

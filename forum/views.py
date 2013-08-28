@@ -4,7 +4,8 @@ and posts, adding new threads, and adding replies.
 """
 
 from datetime import datetime, timedelta
-from django.shortcuts import get_object_or_404, render_to_response
+from functools import reduce
+from django.shortcuts import get_object_or_404, render_to_response,render
 from django.http import Http404, HttpResponse, HttpResponseRedirect, HttpResponseServerError, HttpResponseForbidden, HttpResponseNotAllowed
 from django.template import RequestContext, Context, loader
 from django import forms
@@ -25,10 +26,12 @@ from django.views.generic import CreateView, UpdateView
 from django.views.generic.edit import FormMixin
 from django.core.urlresolvers import reverse_lazy
 
+from django.db.models.query import EmptyQuerySet
+from django.db.models import Q
 
 
 from forum.models import Forum,Thread,Post,Subscription
-from forum.forms import CreateThreadForm, ReplyForm,ThreadForm,PostForm
+from forum.forms import CreateThreadForm, ReplyForm,ThreadForm,PostForm, SearchForm
 from forum.signals import thread_created
 
 FORUM_PAGINATION = getattr(settings, 'FORUM_PAGINATION', 10)
@@ -67,7 +70,7 @@ class ForumIndexView(ListView):
             'forum_list':Forum.objects.for_user(self.request.user).filter(parent__isnull=True)
         }
         context.update(extra_context)
-        print context
+        #print context
 
         return context
 
@@ -229,6 +232,9 @@ class ThreadCreateView(CreateView):
     def get_context_data(self, **kwargs):
         """Add current shop to the context, so we can show it on the page."""
         context = super(ThreadCreateView, self).get_context_data(**kwargs)
+
+        form_class = self.get_form_class()
+        form       = self.get_form(form_class)
 
         extra_context = {
             'forum':  self.forum,
@@ -419,8 +425,94 @@ class SphinxObjectList(object):
         ids = [m['id'] for m in self.results['matches']]
         return Topic.objects.filter(id__in=ids)
 
-class ForumSearchView(ListView):
-    pass
+class ForumSearchView(FormMixin, ListView):
+    model = Thread
+    paginate_by = FORUM_PAGINATION
+    template_name = 'forum/forum_search.html'
+    form_class = SearchForm
+    keyword_kwarg = 'keyword'
+    q = None
+
+    def dispatch(self, *args, **kwargs):
+        """ Decorate the view dispatcher with permission_required
+            Ensure the forum exists before creating a new Thread."""
+
+        print 'dispatch--------------------------------------------------------'
+        self.keyword = kwargs.get(self.keyword_kwarg, None)
+        print kwargs
+        return super(ForumSearchView, self).dispatch(*args, **kwargs)
+
+    def search(self, keywords, search_type = 'or'):
+        if type(keywords) in [unicode,str]:
+            keywords = keywords.strip().split()
+
+        Q_list = [Q(title__icontains=keyword) for keyword in keywords]
+
+        Q_filters = reduce(lambda x,y:x or y, Q_list)
+
+        if len(keywords) > 0:
+            qs=Thread.objects.filter(Q_filters)
+        else:
+            qs=EmptyQuerySet()
+        return qs
+
+    def get_queryset(self):
+        print 'get_queryset---------------------------------------------------------'
+        if self.keyword:
+            return self.search(self.keyword)
+        else:
+            return EmptyQuerySet()
+
+    def get(self, request, *args, **kwargs):
+        print 'get---------------------------------------------------------'
+        print request.GET
+        q=self.q
+
+        if not q:
+            q = self.request.GET.get(self.keyword_kwarg, "")
+
+        if q != "":
+            self.keyword = q
+
+        return super(ForumSearchView, self).get(request, *args, **kwargs)
+
+    def post(self,request, *args, **kwargs):
+        #if not request.user.is_authenticated():
+        #    return HttpResponseForbidden()
+        print 'post---------------------------------------------------------'
+        print request.POST
+        q=self.q
+
+        if not q:
+            q = request.POST.get(self.keyword_kwarg, "")
+
+        if q != "":
+            self.keyword = q
+
+        ####self.object_list=self.get_queryset()
+
+        ####context = self.get_context_data(object_list=self.object_list)
+
+        #####return render(request,  self.template_name, context.update({'thread_list':qs}) )
+        ###return    self.render_to_response(context)
+        return HttpResponseRedirect(reverse('forum_search') +'?keyword=%s' % self.keyword)
+
+    def get_context_data(self, **kwargs):
+        """Add current shop to the context, so we can show it on the page."""
+        context = super(ForumSearchView, self).get_context_data(**kwargs)
+
+        form_class = self.get_form_class()
+        form       = self.get_form(form_class)
+
+        extra_context = {
+            'keyword':  self.keyword,
+            'form': form,
+        }
+        context.update(extra_context)
+        #print context
+
+        return context
+
 def search(request, slug):
     forum = get_object_or_404(Forum, slug=slug)
     try:
@@ -487,3 +579,12 @@ class SubscriptionUpdateView(ListView):
         context.update(extra_context)
         return context
 
+from tagging.models import TaggedItem
+
+class ForumTagsView(ListView):
+    """
+    Allow users to update their subscriptions all in one shot.
+    """
+    model = TaggedItem
+    paginate_by = FORUM_PAGINATION
+    template_name='forum/forum_tags.html'

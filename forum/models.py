@@ -23,6 +23,21 @@ except ImportError:
             return "Markdown is not installed!"
     raise MarkdownNotFound
 
+# attempt to load the django-tagging TagField from default location,
+# otherwise we substitude a dummy TagField.
+try:
+    from tagging.fields import TagField
+    tagfield_help_text = _('Separate tags with spaces, put quotes around multiple-word tags.')
+except ImportError:
+    class TagField(models.CharField):
+        def __init__(self, **kwargs):
+            default_kwargs = {'max_length': 255, 'blank': True}
+            default_kwargs.update(kwargs)
+            super(TagField, self).__init__(**default_kwargs)
+        def get_internal_type(self):
+            return 'CharField'
+    tagfield_help_text = _('Django-tagging was not found, tags will be treated as plain text.')
+
 from forum.managers import ForumManager
 
 class Forum(models.Model):
@@ -186,6 +201,8 @@ class Thread(models.Model):
     closed = models.BooleanField(_("Closed?"), blank=True, default=False)
     posts = models.IntegerField(_("Posts"), default=0)
     views = models.IntegerField(_("Views"), default=0)
+    tags = TagField(help_text=tagfield_help_text, verbose_name=_('tags'))
+    create_at  = models.DateTimeField(_("Thread Create Time"), blank=True, null=True, auto_now_add=True)
     latest_post_time = models.DateTimeField(_("Latest Post Time"), blank=True, null=True)
 
     def _get_thread_first_post(self):
@@ -255,6 +272,7 @@ class Post(models.Model):
     author = models.ForeignKey(User, related_name='forum_post_set')
     body = models.TextField(_("Body"))
     body_html = models.TextField(editable=False)
+    tags = TagField(help_text=tagfield_help_text, verbose_name=_('tags'))
     time = models.DateTimeField(_("Time"), blank=True, null=True)
 
     def save(self, force_insert=False, force_update=False):
