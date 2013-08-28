@@ -23,3 +23,6 @@ class PostForm(forms.ModelForm):
     class Meta:
         model = Post
         fields = ('body','subscribe')
+
+class SearchForm(forms.Form):
+    keyword = forms.CharField(label=_("keyword"))
