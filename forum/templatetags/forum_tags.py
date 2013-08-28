@@ -1,6 +1,8 @@
 from forum.models import Thread, Post
 from django.utils.translation import ugettext as _
 from django.template import Library, Node, TemplateSyntaxError, Variable, resolve_variable
+from django.utils.safestring import mark_safe
+import re
 
 register = Library()
 
@@ -107,8 +109,8 @@ def get_display_page_range(parser, token):
     {% get_display_page_range [pagenator] [page_number ] as [context_var] %}
     """
     bits = token.contents.split()
-    for i,x in enumerate(bits):
-        print i,x
+    #for i,x in enumerate(bits):
+    #    print i,x
     if len(bits) not in (3, 5):
         raise TemplateSyntaxError('%s tag requires 3 or 5 arguments' % bits[0])
     if bits[3] != 'as':
@@ -126,3 +128,10 @@ register.tag('forum_latest_posts', forum_latest_posts)
 register.tag('forum_latest_thread_activity', forum_latest_thread_activity)
 register.tag('forum_latest_user_posts', forum_latest_user_posts)
 register.tag('get_display_page_range', get_display_page_range)
+
+@register.filter(name='highlight')
+def highlight(text, filter):
+    '''useage: {{text_block|highlight:"helloworld"}}.'''
+    pattern = re.compile(r"(?P<filter>%s)" % filter, re.IGNORECASE)
+    return mark_safe(re.sub(pattern, r"<span class='highlight org fn'>\g<filter></span>", text))
+
